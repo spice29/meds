@@ -20,25 +20,24 @@ jobs:
           mv *.swift Sources/
           xcodegen generate
 
-      - name: Build (unsigned)
+      - name: Build and package (unsigned)
         run: |
+          NAME=$(grep -m1 '^name:' project.yml | awk '{print $2}')
           xcodebuild \
-            -project MedsApp.xcodeproj \
-            -scheme MedsApp \
+            -project "$NAME.xcodeproj" \
+            -scheme "$NAME" \
             -configuration Release \
             -sdk iphoneos \
             -destination 'generic/platform=iOS' \
             -derivedDataPath build \
             CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
             build
-
-      - name: Package IPA
-        run: |
           mkdir Payload
-          cp -R build/Build/Products/Release-iphoneos/MedsApp.app Payload/
-          zip -qr MedsApp.ipa Payload
+          cp -R "build/Build/Products/Release-iphoneos/$NAME.app" Payload/
+          zip -qr "$NAME.ipa" Payload
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: MedsApp-unsigned-ipa
-          path: MedsApp.ipa
+          name: ${{ env.NAME }}-unsigned-ipa
+          path: ${{ env.NAME }}.ipa
