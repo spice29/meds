@@ -7,7 +7,6 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     static let takenAction = "TAKEN"
     static let snoozeAction = "SNOOZE"
 
-    /// يُستدعى مرة وحدة عند تشغيل التطبيق
     func configure() {
         let center = UNUserNotificationCenter.current()
         center.delegate = self
@@ -33,36 +32,61 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
         return s.authorizationStatus == .authorized || s.authorizationStatus == .provisional
     }
 
-    /// إشعار واحد متكرر يومياً لكل وقت (٨ ص، ٢ م، ٨ م) يجمع أدوية ذاك الوقت
+    private func line(for m: Medication) -> String {
+        var s = "• \(m.name): \(m.doseText)"
+        if m.meal != .unspecified { s += " · \(m.meal.title)" }
+        return s
+    }
+
+    /// إشعار يومي متكرر لكل وقت، يجمع أدوية ذاك الوقت
     func reschedule(_ meds: [Medication]) {
-        let center = UNUserNotificationCenter.current()
-        center.removePendingNotificationRequests(
-            withIdentifiers: Slot.allCases.map { "slot-\($0.rawValue)" })
-
-        for slot in Slot.allCases {
-            let items = meds.filter { $0.slots.contains(slot) }
-            guard !items.isEmpty else { continue }
-
-            let content = UNMutableNotificationContent()
-            content.title = "وقت أدوية \(slot.title) (\(slot.timeLabel))"
-            content.body = items.map { "• \($0.name): \($0.qtyText)" }.joined(separator: "\n")
-            content.sound = .default
-            content.categoryIdentifier = Self.category
-            content.userInfo = ["slot": slot.rawValue]
-            // content.interruptionLevel = .timeSensitive  // يحتاج تفعيل Time Sensitive Notifications في Capabilities
-
-            var comps = DateComponents()
-            comps.hour = slot.hour
-            comps.minute = 0
-            let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
-            center.add(UNNotificationRequest(identifier: "slot-\(slot.rawValue)",
-                                             content: content, trigger: trigger))
+        var groups: [DoseTime: [Medication]] = [:]
+        for m in meds {
+            for t in m.times { groups[t, default: []].append(m) }
         }
+        let snapshot = groups
+        let center = UNUserNotificationCenter.current()
+
+        center.getPendingNotificationRequests { [weak self] pending in
+            guard let self = self else { return }
+            let old = pending.map { $0.identifier }.filter { $0.hasPrefix("dose-") }
+            center.removePendingNotificationRequests(withIdentifiers: old)
+
+            for (time, items) in snapshot {
+                let content = UNMutableNotificationContent()
+                content.title = "حان وقت جرعتك (\(time.label))"
+                content.body = items.map { self.line(for: $0) }.joined(separator: "\n")
+                content.sound = .default
+                content.categoryIdentifier = Self.category
+                content.userInfo = ["time": time.id]
+                // content.interruptionLevel = .timeSensitive  // يحتاج Capability: Time Sensitive Notifications
+
+                var comps = DateComponents()
+                comps.hour = time.hour
+                comps.minute = time.minute
+                let trigger = UNCalendarNotificationTrigger(dateMatching: comps, repeats: true)
+                center.add(UNNotificationRequest(identifier: "dose-\(time.id)",
+                                                 content: content, trigger: trigger))
+            }
+        }
+    }
+
+    /// تنبيه نقص المخزون (فوري)
+    func notifyLowStock(_ med: Medication) {
+        let content = UNMutableNotificationContent()
+        content.title = "مخزون \(med.name) قارب على الانتهاء"
+        var body = "المتبقي: \(med.stockText)"
+        if let d = med.daysLeft { body += " (يكفي حوالي \(d) يوم)" }
+        content.body = body
+        content.sound = .default
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        UNUserNotificationCenter.current().add(
+            UNNotificationRequest(identifier: "low-\(med.id.uuidString)",
+                                  content: content, trigger: trigger))
     }
 
     // MARK: - UNUserNotificationCenterDelegate
 
-    /// يظهر الإشعار حتى لو التطبيق مفتوح
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 willPresent notification: UNNotification) async
         -> UNNotificationPresentationOptions {
@@ -72,17 +96,16 @@ final class NotificationManager: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter,
                                 didReceive response: UNNotificationResponse) async {
         let original = response.notification.request.content
-        guard let raw = original.userInfo["slot"] as? String,
-              let slot = Slot(rawValue: raw) else { return }
+        guard let timeId = original.userInfo["time"] as? Int else { return }
 
         switch response.actionIdentifier {
         case Self.takenAction:
-            await MainActor.run { Store.shared.markSlotTaken(slot) }
+            await MainActor.run { Store.shared.markDosesTaken(timeId: timeId) }
 
         case Self.snoozeAction:
             guard let content = original.mutableCopy() as? UNMutableNotificationContent else { return }
             let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 15 * 60, repeats: false)
-            try? await center.add(UNNotificationRequest(identifier: "snooze-\(slot.rawValue)",
+            try? await center.add(UNNotificationRequest(identifier: "snooze-\(timeId)",
                                                         content: content, trigger: trigger))
         default:
             break
