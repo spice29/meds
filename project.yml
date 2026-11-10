@@ -1,28 +1,43 @@
-name: Jorati
-options:
-  deploymentTarget:
-    iOS: "16.0"
-settings:
-  base:
-    SWIFT_VERSION: "5.0"
-targets:
-  Jorati:
-    type: application
-    platform: iOS
-    sources: [Sources]
-    info:
-      path: Info.plist
-      properties:
-        CFBundleDisplayName: جرعتي
-        UILaunchScreen: {}
-        UISupportedInterfaceOrientations:
-          - UIInterfaceOrientationPortrait
-        UISupportedInterfaceOrientations~ipad:
-          - UIInterfaceOrientationPortrait
-          - UIInterfaceOrientationPortraitUpsideDown
-          - UIInterfaceOrientationLandscapeLeft
-          - UIInterfaceOrientationLandscapeRight
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.spice29.jorati
-        TARGETED_DEVICE_FAMILY: "1,2"
+name: Build IPA
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: |
+          mkdir -p Sources
+          mv *.swift Sources/
+          xcodegen generate
+
+      - name: Build and package (unsigned)
+        run: |
+          NAME=$(grep -m1 '^name:' project.yml | awk '{print $2}')
+          xcodebuild \
+            -project "$NAME.xcodeproj" \
+            -scheme "$NAME" \
+            -configuration Release \
+            -sdk iphoneos \
+            -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build
+          mkdir Payload
+          cp -R "build/Build/Products/Release-iphoneos/$NAME.app" Payload/
+          zip -qr "$NAME.ipa" Payload
+          echo "NAME=$NAME" >> "$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.NAME }}-unsigned-ipa
+          path: ${{ env.NAME }}.ipa
