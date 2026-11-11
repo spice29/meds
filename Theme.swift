@@ -18,19 +18,40 @@ extension Color {
         })
     }
 
-    // ====== غيّر ألوان التطبيق من هنا فقط ======
-    static let appBG = Color(light: 0xEAF1FB, dark: 0x0B1220)     // خلفية الصفحات
-    static let cardBG = Color(light: 0xFFFFFF, dark: 0x172033)    // خلفية البطاقات
-    static let brand = Color(light: 0x1A6FE0, dark: 0x6FA8FF)     // اللون الأساسي
-    static let softText = Color(light: 0x5B6E86, dark: 0x9FB0C8)  // النصوص الثانوية
+    static let cardBG = Color(light: 0xFFFFFF, dark: 0x12263A)
+    static let softText = Color(light: 0x56697F, dark: 0xA3B4C9)
+    static let turquoise = Color(light: 0x0FA3A3, dark: 0x4FD1C5)
+}
+
+// اللون الأساسي للثيم الحالي، يوصل لكل الشاشات عبر الـ Environment
+private struct AccentKey: EnvironmentKey {
+    static let defaultValue: Color = Color(light: 0x1A6FE0, dark: 0x6FA8FF)
+}
+
+extension EnvironmentValues {
+    var accent: Color {
+        get { self[AccentKey.self] }
+        set { self[AccentKey.self] = newValue }
+    }
+}
+
+/// خلفية متدرجة (أزرق/تركوازي) حسب الثيم المختار
+struct ThemedBackground: View {
+    @EnvironmentObject var settings: SettingsStore
+
+    var body: some View {
+        LinearGradient(colors: [settings.value.theme.top, settings.value.theme.bottom],
+                       startPoint: .top, endPoint: .bottom)
+    }
 }
 
 struct CardStyle: ViewModifier {
     func body(content: Content) -> some View {
         content
             .padding(14)
-            .background(Color.cardBG, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-            .shadow(color: Color.black.opacity(0.06), radius: 8, x: 0, y: 3)
+            .background(Color.cardBG.opacity(0.94),
+                        in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .shadow(color: Color.black.opacity(0.07), radius: 8, x: 0, y: 3)
     }
 }
 

@@ -14,6 +14,7 @@ targets:
       path: Info.plist
       properties:
         CFBundleDisplayName: جرعتي
+        NSFaceIDUsageDescription: لحماية بيانات أدويتك
         UILaunchScreen: {}
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
